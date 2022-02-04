@@ -1,211 +1,98 @@
 #include<iostream>
 #include<fstream>
-#include<math.h>
 #include<map>
+#include<string>
+#include<cctype>
+#include<algorithm>
+#include"lang.h"
 
 using namespace std;
 
-#define CHARSET_LENGTH 26
-#define ALPHA 1/2
+lang::lang() {};
 
-string alphabet = "abcdefghijklmnopqrstuvwxyz";
-
-std::map<string,char> specialChars 
+lang::lang(const char* rifname, const char* tfname, int k, double a)
 {
-    {"á", 'a'},
-    {"à", 'a'},
-    {"ã", 'a'},
-    {"é", 'e'},
-    {"è", 'e'},
-    {"ê", 'e'},
-    {"í", 'i'},
-    {"ì", 'i'},
-    {"ó", 'o'},
-    {"ò", 'o'},
-    {"õ", 'o'},
-    {"ô", 'o'},
-    {"ú", 'u'},
-    {"ù", 'u'},
-    {"ç", 'c'}
-};
-
-std::map<char,int> getMapBuffer()
-{
-    std::map<char,int> result;
-
-    char i;
-    for(i = 'a'; i <= 'z'; i++)
-    {
-        result[i] = 0;
-    }
-
-    return result;
+    N = 0.0;
+    order = k;
+    alpha = a;
+    t.open(tfname);
+    lang::initFcm(rifname, k, a);
 }
 
-std::map<char,double> getMapBufferDouble()
+void lang::initFcm(const char* rifname, int k, double a)
 {
-    std::map<char,double> result;
-
-    char i;
-    for(i = 'a'; i <= 'z'; i++)
-    {
-        result[i] = 0;
-    }
-
-    return result;
+    f.open(rifname);
+    f.setAlpha(a);
+    f.setOrder(k);
+    f.extract();
+    f.computeBps();
+    f.computeAverageBps();
 }
 
-std::map<string,map<char,int>> initBuffers(int k)
+int lang::openri(const char* fname)
 {
-    int size = (int) pow(CHARSET_LENGTH, k);
-    string tmp = string(k, 'a');
+    ri.open(fname);
+    return ri.good();
+}
 
-    std::map<string,std::map<char,int>> model;
-    model[tmp] = getMapBuffer();
+int lang::opent(const char* fname)
+{
+    t.open(fname);
+    return t.good();
+}
 
-    int i = 1;
-    char last;
-    while(tmp != string(k, 'z'))
+std::map<std::string,std::map<char,double>> lang::getFcm()
+{
+    return f.getBps();
+}
+
+void lang::estimate()
+{
+    int k;
+    char next;
+    std::string line;
+    std::string block;
+    std::string context;
+    std::map<std::string,std::map<char,double>> riFcm = lang::getFcm();
+    while(std::getline(t,line))
     {
-        if(tmp[k-1] != 'z')
+        // Convert string to lower
+        std::transform(line.begin(), line.end(), line.begin(), [](unsigned char c){ return std::tolower(c); });
+
+        // Loop through every substring
+        // of k+1 size
+        k = 0;
+        while((order + k) < line.size())
         {
-            last = tmp[k-1];
-            tmp[k-1] = last + 1;
-        }
-        else
-        {
-            tmp[k-1] = 'a';
-            int j = 2;
-            while(tmp[k-(j+1)] == 'z')
+            block = line.substr(k, (order+1));
+            context = block.substr(0, order);
+            next = block[order];
+
+            // Increment N variable
+            // if context is defined
+            if(riFcm.find(context) != riFcm.end())
             {
-                tmp[k-(j+1)] = 'a';
-                j++;
+                N += riFcm[context][next];
             }
-            char c = tmp[k-j];
-            tmp[k-j] = c + 1;
+            
+            k++;
         }
-        model[tmp] = getMapBuffer();
-
     }
-
-    return model;
 }
 
-void printModel(map<string,map<char,int>> model)
+double lang::getN()
 {
-    for(const auto& elem : model)
-    {
-        for(const auto& sec : elem.second)
-        {
-            std::cout << elem.first << " >> " << sec.first << " : " << sec.second << std::endl;
-        }
-    }
+    return N;
 }
 
-std::map<string,std::map<char,int>> trainModel(int k, const char* fname)
-{
-    std::map<string,std::map<char,int>> model;
-    model = initBuffers(k);
-    ifstream ifs(fname);
-    char ch;
-    string key = "";
-    int hasKey = 0;
+// int main(int argc, char** argv)
+// {
+//     const char* rifname = argv[1];
+//     const char* tfname = argv[2];
+//     int k = atoi(argv[3]);
+//     double a = atof(argv[4]);
 
-    while(ifs.get(ch))
-    {
-        
-        // Convert character to lower case
-        ch = tolower(ch);
-        
-        // Check for valid character
-        if(alphabet.find(ch) == std::string::npos)
-        {
-            if(specialChars.find(string(1,ch)) == specialChars.end())
-            {
-                key = "";
-                continue;
-            }
-            else
-            {
-                ch = specialChars[string(1,ch)];
-            }
-        }
-        
-        // Set key
-        if(key.size() < k)
-        {
-            key.push_back(ch);
-        }
-        else
-        {
-            model[key][ch]++;
-            key[0] = key[1];
-            key[1] = ch;
-        }
-    }
-    return model;
-}
-
-std::map<string,std::map<char,double>> computeBps(std::map<string,std::map<char,int>> model, double alpha)
-{
-    std::map<string,int> sums;
-    std::map<string,std::map<char,double>> bps;
-    
-    for(const auto& element : model)
-    {
-        sums[element.first] = 0;
-        for(const auto& value : element.second)
-        {
-            sums[element.first] += value.second;
-        }
-        //std::cout << element.first << " >> " << sums[element.first] << std::endl;
-    }
-
-    for(const auto& element: model)
-    {
-        bps[element.first] = getMapBufferDouble();
-        for(const auto& value : element.second)
-        {
-            double prob = (value.second + alpha)/(sums[element.first] + 4*alpha);
-            double encodeBits = -log2(prob);
-            bps[element.first][value.first] = encodeBits;
-        }
-    }
-
-    return bps;
-}
-
-double computeAverageBps(std::map<string,std::map<char,double>> model)
-{
-    int count = 0;
-    double sum = 0;
-    for(const auto& element : model)
-    {
-        for(const auto& value : element.second)
-        {
-            count++;
-            sum += value.second;
-        }
-    }
-
-    return sum/count;
-}
-
-int main(int argc, char** argv)
-{
-    // Set alpha
-    double alpha = 0.1;
-    // Init model map
-    std::map<string,std::map<char,int>> model;
-    std::map<string,std::map<char,double>> bps;
-    // Get filename
-    const char* fname = argv[1];
-    // Train model
-    model = trainModel(2, fname);
-    // Compute bps
-    bps = computeBps(model, alpha);
-    // Compute average bps
-    double averageBps = computeAverageBps(bps);
-    // Print average bps
-    std::cout << "[" << fname << "] BPS: " << averageBps << std::endl;
-}
+//     lang lang(rifname, tfname, k, a);
+//     lang.estimate();
+//     std::cout << (long) lang.getN() << " bits" << std::endl;
+// }
